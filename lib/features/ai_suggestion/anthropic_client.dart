@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 class AnthropicAuthException implements Exception {
   const AnthropicAuthException(this.message);
 
@@ -30,6 +32,25 @@ class AnthropicParseException implements Exception {
 }
 
 class AnthropicApiKeyProvider {
+  static String fromDotEnv([DotEnv? dotEnv]) {
+    final source = dotEnv ?? dotenv;
+
+    if (!source.isInitialized) {
+      throw ArgumentError(
+        'dotenv が初期化されていません。ANTHROPIC_API_KEY を読み込めません。',
+      );
+    }
+
+    final apiKey = source.env['ANTHROPIC_API_KEY']?.trim();
+    if (apiKey == null || apiKey.isEmpty) {
+      throw ArgumentError(
+        '環境変数 ANTHROPIC_API_KEY が設定されていません。',
+      );
+    }
+
+    return apiKey;
+  }
+
   static String fromEnvironment([Map<String, String>? environment]) {
     final source = environment ?? Platform.environment;
     final apiKey = source['ANTHROPIC_API_KEY']?.trim();

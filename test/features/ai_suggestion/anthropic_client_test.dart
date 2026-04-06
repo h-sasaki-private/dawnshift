@@ -1,8 +1,17 @@
 import 'package:dawnshift/features/ai_suggestion/anthropic_client.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('AnthropicApiKeyProvider', () {
+    test('flutter_dotenv から API キーを取得できる', () {
+      final dotEnv = DotEnv()..testLoad(fileInput: 'ANTHROPIC_API_KEY=test-key');
+
+      final apiKey = AnthropicApiKeyProvider.fromDotEnv(dotEnv);
+
+      expect(apiKey, 'test-key');
+    });
+
     test('環境変数 ANTHROPIC_API_KEY から API キーを取得できる', () {
       final apiKey = AnthropicApiKeyProvider.fromEnvironment(
         const {'ANTHROPIC_API_KEY': 'test-api-key'},
@@ -14,6 +23,15 @@ void main() {
     test('環境変数に API キーがない場合は ArgumentError を投げる', () {
       expect(
         () => AnthropicApiKeyProvider.fromEnvironment(const {}),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('dotenv に API キーがない場合は ArgumentError を投げる', () {
+      final dotEnv = DotEnv()..testLoad(fileInput: 'OTHER=value');
+
+      expect(
+        () => AnthropicApiKeyProvider.fromDotEnv(dotEnv),
         throwsA(isA<ArgumentError>()),
       );
     });
