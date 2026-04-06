@@ -1,6 +1,9 @@
 import 'package:dawnshift/core/models/routine_item.dart';
 import 'package:dawnshift/features/sleep/sleep_record_repository.dart';
 
+export 'package:dawnshift/features/sleep/sleep_record_repository.dart'
+    show FakeFirestore, FirestoreInterface;
+
 // ─── RoutineRepository ────────────────────────────────────────
 
 class RoutineRepository {
