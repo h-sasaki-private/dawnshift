@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dawnshift/core/models/routine_suggestion.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 class AnthropicAuthException implements Exception {
   const AnthropicAuthException(this.message);
 
@@ -30,6 +33,25 @@ class AnthropicParseException implements Exception {
 }
 
 class AnthropicApiKeyProvider {
+  static String fromDotEnv([DotEnv? dotEnv]) {
+    final source = dotEnv ?? dotenv;
+
+    if (!source.isInitialized) {
+      throw ArgumentError(
+        'dotenv が初期化されていません。ANTHROPIC_API_KEY を読み込めません。',
+      );
+    }
+
+    final apiKey = source.env['ANTHROPIC_API_KEY']?.trim();
+    if (apiKey == null || apiKey.isEmpty) {
+      throw ArgumentError(
+        '環境変数 ANTHROPIC_API_KEY が設定されていません。',
+      );
+    }
+
+    return apiKey;
+  }
+
   static String fromEnvironment([Map<String, String>? environment]) {
     final source = environment ?? Platform.environment;
     final apiKey = source['ANTHROPIC_API_KEY']?.trim();
@@ -42,55 +64,6 @@ class AnthropicApiKeyProvider {
 
     return apiKey;
   }
-}
-
-class RoutineItem {
-  const RoutineItem({
-    required this.title,
-    required this.durationMinutes,
-  });
-
-  final String title;
-  final int durationMinutes;
-
-  factory RoutineItem.fromJson(Map<String, dynamic> json) {
-    return RoutineItem(
-      title: json['title'] as String,
-      durationMinutes: json['duration_minutes'] as int,
-    );
-  }
-}
-
-class RoutineSuggestion {
-  const RoutineSuggestion({
-    required this.targetBedtime,
-    required this.routines,
-  });
-
-  final String targetBedtime;
-  final List<RoutineItem> routines;
-
-  factory RoutineSuggestion.fromJson(Map<String, dynamic> json) {
-    final routines = (json['routines'] as List<dynamic>)
-        .cast<Map<String, dynamic>>()
-        .map(RoutineItem.fromJson)
-        .toList();
-
-    return RoutineSuggestion(
-      targetBedtime: json['target_bedtime'] as String,
-      routines: routines,
-    );
-  }
-}
-
-class RoutineSuggestionResult {
-  const RoutineSuggestionResult({
-    required this.suggestion,
-    required this.timeToFirstChunk,
-  });
-
-  final RoutineSuggestion suggestion;
-  final Duration timeToFirstChunk;
 }
 
 abstract class HttpClientInterface {
@@ -109,92 +82,6 @@ class StreamedHttpResponse {
 
   final int statusCode;
   final Stream<String> body;
-}
-
-class MockHttpClient implements HttpClientInterface {
-  MockHttpClient._(this._handler);
-
-  final Future<StreamedHttpResponse> Function() _handler;
-
-  factory MockHttpClient.streamingSuccess() {
-    return MockHttpClient._(() async {
-      final firstDelta = jsonEncode({
-        'type': 'content_block_delta',
-        'delta': {
-          'type': 'text_delta',
-          'text':
-              '{"target_bedtime":"23:00","routines":[{"title":"起床後に日光を浴びる","duration_minutes":10},',
-        },
-      });
-      final secondDelta = jsonEncode({
-        'type': 'content_block_delta',
-        'delta': {
-          'type': 'text_delta',
-          'text': '{"title":"白湯を飲む","duration_minutes":5}]}',
-        },
-      });
-
-      final chunks = <String>[
-        'event: message_start\n',
-        'data: {"type":"message_start"}\n\n',
-        'event: content_block_delta\n',
-        'data: $firstDelta\n\n',
-        'event: content_block_delta\n',
-        'data: $secondDelta\n\n',
-        'event: message_stop\n',
-        'data: {"type":"message_stop"}\n\n',
-      ];
-
-      final controller = StreamController<String>();
-      unawaited(() async {
-        for (final chunk in chunks) {
-          await Future<void>.delayed(const Duration(milliseconds: 20));
-          controller.add(chunk);
-        }
-        await controller.close();
-      }());
-
-      return StreamedHttpResponse(statusCode: 200, body: controller.stream);
-    });
-  }
-
-  factory MockHttpClient.unauthorized() {
-    return MockHttpClient._(
-      () async => StreamedHttpResponse(
-        statusCode: 401,
-        body: Stream<String>.value('{"error":"unauthorized"}'),
-      ),
-    );
-  }
-
-  factory MockHttpClient.networkError() {
-    return MockHttpClient._(
-      () async => throw const SocketException('Network error'),
-    );
-  }
-
-  factory MockHttpClient.emptyStream() {
-    return MockHttpClient._(
-      () async => StreamedHttpResponse(
-        statusCode: 200,
-        body: Stream<String>.fromIterable(const [
-          'event: message_start\n',
-          'data: {"type":"message_start"}\n\n',
-          'event: message_stop\n',
-          'data: {"type":"message_stop"}\n\n',
-        ]),
-      ),
-    );
-  }
-
-  @override
-  Future<StreamedHttpResponse> postStream(
-    Uri uri, {
-    required Map<String, String> headers,
-    required String body,
-  }) {
-    return _handler();
-  }
 }
 
 class AnthropicClient {
