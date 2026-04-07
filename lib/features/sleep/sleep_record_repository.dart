@@ -1,4 +1,5 @@
 import 'package:dawnshift/core/models/sleep_record.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 // ─── Firestore抽象 ─────────────────────────────────────────────
 
@@ -14,6 +15,92 @@ abstract class FirestoreInterface {
     String? orderByField,
     bool descending = false,
   });
+}
+
+class FirebaseFirestoreClient implements FirestoreInterface {
+  FirebaseFirestoreClient({FirebaseFirestore? firestore})
+      : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  final FirebaseFirestore _firestore;
+
+  @override
+  Future<String> add(String collection, Map<String, dynamic> data) async {
+    final document = await _collection(collection).add(data);
+    return document.id;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> get(String collection, String id) async {
+    final snapshot = await _collection(collection).doc(id).get();
+    if (!snapshot.exists) {
+      return null;
+    }
+
+    return _withId(snapshot);
+  }
+
+  @override
+  Future<void> set(
+    String collection,
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    await _collection(collection).doc(id).set(data);
+  }
+
+  @override
+  Future<void> delete(String collection, String id) async {
+    await _collection(collection).doc(id).delete();
+  }
+
+  @override
+  Future<List<({String id, Map<String, dynamic> data})>> query(
+    String collection, {
+    DateTime? afterDate,
+    int? limit,
+    String? orderByField,
+    bool descending = false,
+  }) async {
+    assert(
+      orderByField != null || afterDate == null,
+      'afterDate を使う場合は orderByField の指定が必要です',
+    );
+    Query<Map<String, dynamic>> firestoreQuery = _collection(collection);
+
+    if (orderByField != null) {
+      firestoreQuery = firestoreQuery.orderBy(
+        orderByField,
+        descending: descending,
+      );
+      if (afterDate != null) {
+        firestoreQuery = firestoreQuery.where(
+          orderByField,
+          isGreaterThan: Timestamp.fromDate(afterDate),
+        );
+      }
+    }
+
+    if (limit != null) {
+      firestoreQuery = firestoreQuery.limit(limit);
+    }
+
+    final snapshot = await firestoreQuery.get();
+    return snapshot.docs
+        .map((doc) => (id: doc.id, data: _withId(doc)))
+        .toList();
+  }
+
+  CollectionReference<Map<String, dynamic>> _collection(String path) =>
+      _firestore.collection(path);
+
+  Map<String, dynamic> _withId(DocumentSnapshot<Map<String, dynamic>> snapshot) {
+    final data = snapshot.data();
+    if (data == null) {
+      return {'id': snapshot.id};
+    }
+
+    return {'id': snapshot.id, ...data};
+  }
 }
 
 // ─── テスト用フェイク ──────────────────────────────────────────

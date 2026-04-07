@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
+
 // ─── 例外クラス ────────────────────────────────────────────────
 
 class EmailAlreadyInUseException implements Exception {
@@ -48,6 +50,86 @@ abstract class AuthProvider {
   AppUser? get currentUser;
 
   Stream<AppUser?> get authStateChanges;
+}
+
+class FirebaseAuthProvider implements AuthProvider {
+  FirebaseAuthProvider({FirebaseAuth? firebaseAuth})
+      : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance;
+
+  final FirebaseAuth _firebaseAuth;
+
+  @override
+  AppUser? get currentUser => _mapUser(_firebaseAuth.currentUser);
+
+  @override
+  Stream<AppUser?> get authStateChanges =>
+      _firebaseAuth.authStateChanges().map(_mapUser);
+
+  @override
+  Future<AppUser> registerWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final credential = await _firebaseAuth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      return _requireUser(credential.user);
+    } on FirebaseAuthException catch (error) {
+      throw _mapFirebaseAuthException(error, email);
+    }
+  }
+
+  @override
+  Future<AppUser> signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final credential = await _firebaseAuth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      return _requireUser(credential.user);
+    } on FirebaseAuthException catch (error) {
+      throw _mapFirebaseAuthException(error, email);
+    }
+  }
+
+  @override
+  Future<void> signOut() => _firebaseAuth.signOut();
+
+  AppUser? _mapUser(User? user) {
+    if (user == null || user.email == null) {
+      return null;
+    }
+
+    return AppUser(uid: user.uid, email: user.email!);
+  }
+
+  AppUser _requireUser(User? user) {
+    final appUser = _mapUser(user);
+    if (appUser == null) {
+      throw StateError('Firebase Auth からユーザー情報を取得できませんでした。');
+    }
+
+    return appUser;
+  }
+
+  Exception _mapFirebaseAuthException(FirebaseAuthException error, String email) {
+    switch (error.code) {
+      case 'email-already-in-use':
+        return EmailAlreadyInUseException(email);
+      case 'user-not-found':
+        return UserNotFoundException(email);
+      case 'wrong-password':
+      case 'invalid-credential':
+        return const WrongPasswordException();
+      default:
+        return Exception('FirebaseAuthException(${error.code}): ${error.message}');
+    }
+  }
 }
 
 // ─── テスト用フェイク ──────────────────────────────────────────
