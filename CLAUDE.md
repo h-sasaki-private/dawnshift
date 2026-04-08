@@ -1,4 +1,4 @@
-# dawnshift — Claude / Codex 向け開発ガイド
+# dawnshift — Claude Code 向け開発ガイド
 
 ## プロジェクト概要
 
@@ -9,6 +9,35 @@
 - **Firebase Auth / Firestore**
 - **Anthropic API**（Claude）
 - **RevenueCat**（サブスク管理）
+
+---
+
+## 開発フロー
+
+### Codex × Claude Code の役割分担
+
+| 役割 | 担当 |
+|------|------|
+| Issue実装・テスト作成 | Codex（`codex:rescue` スキル） |
+| PRレビュー・修正指摘 | Claude Code |
+| git操作・テスト実行・push | Claude Code（Codexがサンドボックスで詰まった場合） |
+| マージ・進捗管理 | Claude Code |
+
+### Codex呼び出し方法
+
+```
+/codex:rescue で指示を投げる
+```
+
+- `~/.codex/config.toml` に `sandbox = "danger-full-access"` 設定済み
+- git操作・`flutter test`・ネットワーク全て使用可能
+- それでも詰まった場合はClaudeが直接引き継ぐ
+
+### flutter テスト実行
+
+```bash
+/opt/homebrew/bin/flutter test test/features/<feature>/ --reporter expanded
+```
 
 ---
 
@@ -32,16 +61,6 @@
 - テストを通すためだけのハードコードは絶対に禁止
 - 本番コードに `if (testMode)` のような条件分岐を入れない
 - APIキー・シークレットをコードに直接書かない（`.env` または環境変数を使用）
-
----
-
-## Codex向け実装ルール
-
-- 実装前にIssueの `## 完了条件` を必ず確認せよ
-- テストファイルが存在する場合、テストを通すことを最優先にせよ
-- **1 Issue = 1 PR** を原則とする
-- PRの説明には「対応Issue番号」「実装内容」「テスト結果」を必ず含めよ
-- ブランチ名は `feature/issue-{番号}-{概要}` の形式にすること（例: `feature/issue-1-anthropic-api`）
 
 ---
 
@@ -117,23 +136,35 @@ users/{uid}/
 
 ---
 
-## Issue進捗（2026-04-07時点）
+## Issue進捗（2026-04-08時点）
 
-| Issue | ブランチ | PR | 状態 | 備考 |
-|-------|----------|----|------|------|
-| #1 Anthropic API | `feature/issue-1-anthropic-api` | #9 | レビュー修正済・push済 | マージ待ち |
-| #2 Firebase DB | `feature/issue-2-firebase-auth-db` | #10 | レビュー修正済・push済 | マージ待ち |
-| #3 睡眠記録 | 未着手 | - | - | #2マージ後に着手 |
-| #4 朝ルーティン | 未着手 | - | - | #2マージ後に着手 |
-| #5 AI提案 | 未着手 | - | - | #1・#2マージ後に着手 |
-| #6 オンボーディング | 未着手 | - | - | #3・#4完了後 |
-| #7 フリーミアム | 未着手 | - | - | #5完了後 |
-| #8 ストア申請 | 未着手 | - | - | #7完了後 |
+| Issue | ブランチ | PR | 状態 |
+|-------|----------|----|------|
+| #1 Anthropic API | `feature/issue-1-anthropic-api` | #9 | ✅ マージ済み |
+| #2 Firebase DB | `feature/issue-2-firebase-auth-db` | #10 | ✅ マージ済み |
+| #3 睡眠記録 | `feature/issue-3-sleep-record` | #11 | レビュー待ち |
+| #4 朝ルーティン | `feature/issue-4-routine` | #12 | レビュー待ち |
+| #5 AI提案 | 未着手 | - | #1・#2マージ済みのため着手可 |
+| #6 オンボーディング | 未着手 | - | #3・#4完了後 |
+| #7 フリーミアム | 未着手 | - | #5完了後 |
+| #8 ストア申請 | 未着手 | - | #7完了後 |
 
-### 実装済みの設計決定事項
+---
 
-- **モデルクラスの配置**: `RoutineItem` / `RoutineSuggestion` 等は `lib/core/models/` に置くこと（`features/` 内に定義しない）
-- **テスト用クラスの配置**: `MockHttpClient` 等のテスト用クラスは `lib/` ではなく `test/` に置くこと
-- **Firestore ID取得**: `_withId` では `{'id': snapshot.id, ...data}` の順にスプレッドし、ドキュメントデータの `id` フィールドを保護すること
-- **`query` の `afterDate`**: `orderByField` が null のとき `afterDate` は無視されるため、呼び出し側で必ず両方指定すること（assert済み）
-- **PR #9・#10のマージ競合**: 両PRは同一の初期コミットから分岐しているため `lib/main.dart` で競合が発生する。先に #10 をマージし、その後 #9 をリベースすること
+## 実装済みの設計決定事項
+
+### ファイル配置
+- **モデルクラス**: `lib/core/models/` に置くこと（`features/` 内に定義しない）
+- **テスト用クラス**: `MockHttpClient` / `FakeFirestore` 等は `lib/` ではなく `test/` に置くこと
+
+### Firestore
+- **`_withId`**: `{'id': snapshot.id, ...data}` の順にスプレッドし、ドキュメントデータの `id` フィールドを保護すること
+- **`query` の `afterDate`**: `orderByField` が null のとき `afterDate` は無視される。assert済みだが呼び出し側で必ず両方指定すること
+- **`FakeFirestore.query` のソート**: `orderByField` の値が `int` の場合も正しくソートできるよう `num` 型チェックが必要（`order` フィールド等）
+
+### Flutter UI
+- **`TextEditingController` のライフサイクル**: `showDialog` 内で使う場合は `StatefulWidget` のダイアログクラスに移して `dispose()` を委譲すること。`showDialog` の future は exit animation 完了前に resolve するため、外で `dispose()` するとクラッシュする
+- **ListView のウィジェットテスト**: テスト viewport（800×600）からはみ出すアイテムは `find.text()` で検出できない。`tester.drag` でスクロールしてから検証すること
+
+### PR・ブランチ管理
+- 同一の祖先コミットから分岐した複数PRは `lib/main.dart` 等で競合が発生する。依存関係の順にマージし、後のブランチは `git rebase origin/master` すること

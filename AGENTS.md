@@ -1,116 +1,93 @@
-# dawnshift — Claude / Codex 向け開発ガイド
+# dawnshift — Codex 向け実装ガイド
 
-## プロジェクト概要
+## 実装前チェックリスト
 
-睡眠改善・朝ルーティン管理Flutterアプリ。
-毎晩AIが翌日の就寝目標と朝ルーティンを提案し、「起きる理由」を作る。
+1. GitHub Issue の `## 完了条件` を必ず読め
+2. 既存の関連ファイルを確認してから書き始めろ（`rg --files lib/ test/`）
+3. テストを先に書け（Red → Green → Refactor）
+4. `flutter test` で全テストが通ることを確認してからコミットせよ
 
-- **Flutter**（iOS / Android）
-- **Firebase Auth / Firestore**
-- **Anthropic API**（Claude）
-- **RevenueCat**（サブスク管理）
+---
+
+## 環境
+
+```bash
+# flutter
+/opt/homebrew/bin/flutter test test/features/<feature>/ --reporter expanded
+
+# git / ブランチ作成
+git checkout master && git pull origin master
+git checkout -b feature/issue-{番号}-{概要}
+```
+
+- `~/.codex/config.toml` に `sandbox = "danger-full-access"` 設定済み
+- git・flutter test・ネットワーク全て使用可能
 
 ---
 
 ## TDD原則
 
-- コードを書く前に必ずテストを書け（Red → Green → Refactor）
 - テストはモジュールの**外部インターフェース**に対して書け（内部実装をテストしない）
-- 1つのIssue着手前にテストファイルを先に作成せよ
-- テストが通ってから次のフェーズに進む
-
-### テストコードの品質
-
-- テストは必ず実際の機能を検証すること
-- `expect(true).toBe(true)` のような意味のないアサーションは絶対に書かない
-- 各テストケースは具体的な入力と期待される出力を検証すること
-- モックは必要最小限にとどめ、実際の動作に近い形でテストすること
+- `expect(true).toBe(true)` のような意味のないアサーションは絶対に書くな
+- テストを通すためだけのハードコードは禁止
 - 境界値・異常系・エラーケースも必ずテストすること
 
-### ハードコーディングの禁止
-
-- テストを通すためだけのハードコードは絶対に禁止
-- 本番コードに `if (testMode)` のような条件分岐を入れない
-- APIキー・シークレットをコードに直接書かない（`.env` または環境変数を使用）
-
 ---
 
-## Codex向け実装ルール
-
-- 実装前にIssueの `## 完了条件` を必ず確認せよ
-- テストファイルが存在する場合、テストを通すことを最優先にせよ
-- **1 Issue = 1 PR** を原則とする
-- PRの説明には「対応Issue番号」「実装内容」「テスト結果」を必ず含めよ
-- ブランチ名は `feature/issue-{番号}-{概要}` の形式にすること（例: `feature/issue-1-anthropic-api`）
-
----
-
-## ディレクトリ構成
+## ファイル配置ルール
 
 ```
-lib/
-├── main.dart
-├── app/
-│   └── app.dart               # ルーティング・テーマ設定
-├── features/
-│   ├── auth/                  # Issue #2: Firebase認証
-│   ├── sleep/                 # Issue #3: 睡眠記録
-│   ├── routine/               # Issue #4: 朝ルーティン
-│   ├── ai_suggestion/         # Issue #1・#5: AI提案
-│   └── onboarding/            # Issue #6: オンボーディング
-├── core/
-│   ├── services/              # Firebase・API クライアント
-│   ├── models/                # Firestoreデータモデル
-│   └── utils/
-test/
-├── features/
-│   └── （各featureに対応したテスト）
+lib/core/models/        ← モデルクラスはここに置く（featuresに定義しない）
+lib/features/<feature>/ ← UI・ロジック
+test/features/<feature>/← テスト・FakeクラスはすべてここにおけIteスト用クラスをlib/に置くな）
 ```
 
 ---
 
-## Firestoreデータ構造
+## 実装パターン（過去の実装から）
 
-```
-users/{uid}/
-  ├── profile          # オンボーディング入力・設定
-  ├── sleep_records/   # 睡眠記録（就寝・起床時刻）
-  ├── routines/        # ルーティン項目定義
-  └── routine_logs/    # 日次完了ログ
-```
+### Firestoreアクセス
+- `FirestoreInterface` を使い `FirebaseFirestoreClient`（本番）/ `FakeFirestore`（テスト）を差し替える
+- コレクションパスは `users/{uid}/sleep_records` のように uid を含めること
+- `FakeFirestore.query` のソートは `int` / `String` 両方に対応済み（`order` フィールド等）
 
-- セキュリティルール：ユーザーは自分の `users/{uid}` 配下のみアクセス可
+### ダイアログの TextEditingController
+- `showDialog` 内で `TextEditingController` を使う場合は **必ず `StatefulWidget` のダイアログクラスに移して `dispose()` を委譲**すること
+- 外で `titleController.dispose()` を呼ぶと exit animation 中にクラッシュする
 
----
+### ListView のウィジェットテスト
+- テスト viewport（800×600）からはみ出すアイテムは `find.text()` で検出できない
+- `tester.drag(find.byType(ListView), const Offset(0, -300))` でスクロールしてから検証すること
 
-## AIプロンプト方針（Issue #1・#5）
-
-- システムプロンプトに厚労省「健康づくりのための睡眠ガイド2023」の要点を含めること
-- レスポンスはJSON構造化出力を使い、Dartでパースしやすい形式にすること
-- APIキーは環境変数 `ANTHROPIC_API_KEY` から取得すること
-- レイテンシ目標：3秒以内（ストリーミング開始時刻を基準）
+### 日付またぎ処理（睡眠記録）
+- 就寝時刻 > 起床時刻の場合は `bedtime.subtract(const Duration(days: 1))` で前日扱いにする
 
 ---
 
-## フリーミアム制御（Issue #7）
+## PR作成ルール
 
-| 機能 | 無料 | 有料 |
-|------|------|------|
-| 睡眠記録 | ✅ | ✅ |
-| 基本ルーティン設定 | ✅（上限あり） | ✅（無制限） |
-| AIアドバイス | ❌ | ✅ |
-| 週次レポート | ❌ | ✅ |
-
-- サブスク状態は RevenueCat SDK から取得し Firestore に同期すること
+- **1 Issue = 1 PR**
+- ブランチ名: `feature/issue-{番号}-{概要}`（例: `feature/issue-3-sleep-record`）
+- PRの説明に必ず含めること:
+  - `closes #{Issue番号}`
+  - 実装内容の箇条書き
+  - テスト結果（`N/N passed`）
+- `flutter test` が全通過してからPRを作成すること
 
 ---
 
-## Issue依存関係
+## 既実装の概要（参照用）
 
-```
-#1 Anthropic API ─┐
-#2 Firebase DB   ─┼─→ #5 AI提案 → #7 フリーミアム → #8 ストア申請
-#3 睡眠記録  ←#2─┤
-#4 朝ルーティン←#2┘
-#3・#4完了 ─→ #6 オンボーディング
-```
+| ファイル | 概要 |
+|---------|------|
+| `lib/core/models/sleep_record.dart` | 睡眠記録モデル（`toJson`/`fromJson`、日付またぎバリデーション） |
+| `lib/core/models/routine_item.dart` | ルーティン項目モデル（`order`フィールドあり） |
+| `lib/core/models/routine_log.dart` | 完了率ログモデル |
+| `lib/core/models/routine_suggestion.dart` | AI提案モデル（`RoutineItem`・`RoutineSuggestion`） |
+| `lib/features/sleep/sleep_record_repository.dart` | Firestore CRUD + `FakeFirestore`（テスト用） |
+| `lib/features/routine/routine_repository.dart` | ルーティンCRUD・デフォルトテンプレート投入・完了率ログ |
+| `lib/features/auth/auth_service.dart` | Firebase Email/Password認証 + `FakeAuthProvider` |
+| `lib/features/ai_suggestion/anthropic_client.dart` | Claude APIストリーミングクライアント |
+| `lib/features/sleep/sleep_record_page.dart` | 睡眠記録入力・一覧・7日チャート UI |
+| `lib/features/routine/routine_settings_page.dart` | ルーティン設定UI（追加・編集・削除） |
+| `lib/features/routine/morning_routine_page.dart` | 朝の実行画面（チェックボックス・完了率） |
