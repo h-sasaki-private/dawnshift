@@ -19,7 +19,7 @@ abstract class FirestoreInterface {
 
 class FirebaseFirestoreClient implements FirestoreInterface {
   FirebaseFirestoreClient({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+    : _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _firestore;
 
@@ -75,7 +75,7 @@ class FirebaseFirestoreClient implements FirestoreInterface {
       if (afterDate != null) {
         firestoreQuery = firestoreQuery.where(
           orderByField,
-          isGreaterThan: Timestamp.fromDate(afterDate),
+          isGreaterThan: afterDate.toIso8601String(),
         );
       }
     }
@@ -93,7 +93,9 @@ class FirebaseFirestoreClient implements FirestoreInterface {
   CollectionReference<Map<String, dynamic>> _collection(String path) =>
       _firestore.collection(path);
 
-  Map<String, dynamic> _withId(DocumentSnapshot<Map<String, dynamic>> snapshot) {
+  Map<String, dynamic> _withId(
+    DocumentSnapshot<Map<String, dynamic>> snapshot,
+  ) {
     final data = snapshot.data();
     if (data == null) {
       return {'id': snapshot.id};
@@ -125,8 +127,7 @@ class FakeFirestore implements FirestoreInterface {
     String collection,
     String id,
     Map<String, dynamic> data,
-  ) async =>
-      _store.putIfAbsent(collection, () => {})[id] = {...data, 'id': id};
+  ) async => _store.putIfAbsent(collection, () => {})[id] = {...data, 'id': id};
 
   @override
   Future<void> delete(String collection, String id) async =>
@@ -156,9 +157,14 @@ class FakeFirestore implements FirestoreInterface {
 
     if (orderByField != null) {
       docs.sort((a, b) {
-        final av = a.data[orderByField] as String? ?? '';
-        final bv = b.data[orderByField] as String? ?? '';
-        return descending ? bv.compareTo(av) : av.compareTo(bv);
+        final av = a.data[orderByField];
+        final bv = b.data[orderByField];
+        final comparison = switch ((av, bv)) {
+          (int left, int right) => left.compareTo(right),
+          (num left, num right) => left.compareTo(right),
+          _ => '${av ?? ''}'.compareTo('${bv ?? ''}'),
+        };
+        return descending ? -comparison : comparison;
       });
     }
 
@@ -176,8 +182,8 @@ class SleepRecordRepository {
   SleepRecordRepository({
     required FirestoreInterface store,
     required String uid,
-  })  : _store = store,
-        _uid = uid;
+  }) : _store = store,
+       _uid = uid;
 
   final FirestoreInterface _store;
   final String _uid;
