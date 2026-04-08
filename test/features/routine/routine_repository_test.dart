@@ -1,5 +1,6 @@
 import 'package:dawnshift/features/routine/routine_repository.dart';
 import 'package:dawnshift/core/models/routine_item.dart';
+import 'package:dawnshift/core/models/routine_log.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Issue #2: Firestore ルーティン項目 CRUD
@@ -10,16 +11,13 @@ void main() {
     const uid = 'user-123';
 
     setUp(() {
-      repository = RoutineRepository(
-        store: FakeFirestore(),
-        uid: uid,
-      );
+      repository = RoutineRepository(store: FakeFirestore(), uid: uid);
     });
 
     // ─── 追加 ───────────────────────────────────────────────────
 
     test('ルーティン項目を追加すると ID が返る', () async {
-      final item = RoutineItem(title: '白湯を飲む', durationMinutes: 5);
+      final item = RoutineItem(title: '白湯を飲む', durationMinutes: 5, order: 0);
 
       final id = await repository.add(item);
 
@@ -29,12 +27,17 @@ void main() {
     // ─── 一覧取得 ───────────────────────────────────────────────
 
     test('追加した項目を一覧で取得できる', () async {
-      await repository.add(RoutineItem(title: '白湯を飲む', durationMinutes: 5));
-      await repository.add(RoutineItem(title: '軽いストレッチ', durationMinutes: 10));
+      await repository.add(
+        RoutineItem(title: '軽いストレッチ', durationMinutes: 10, order: 1),
+      );
+      await repository.add(
+        RoutineItem(title: '白湯を飲む', durationMinutes: 5, order: 0),
+      );
 
       final items = await repository.findAll();
 
       expect(items.length, 2);
+      expect(items.first.title, '白湯を飲む');
     });
 
     test('項目が存在しない場合は空リストを返す', () async {
@@ -47,12 +50,12 @@ void main() {
 
     test('ルーティン項目を更新できる', () async {
       final id = await repository.add(
-        RoutineItem(title: '白湯を飲む', durationMinutes: 5),
+        RoutineItem(title: '白湯を飲む', durationMinutes: 5, order: 0),
       );
 
       await repository.update(
         id,
-        RoutineItem(title: '白湯を飲む', durationMinutes: 10),
+        RoutineItem(title: '白湯を飲む', durationMinutes: 10, order: 0),
       );
 
       final items = await repository.findAll();
@@ -63,7 +66,7 @@ void main() {
 
     test('ルーティン項目を削除できる', () async {
       final id = await repository.add(
-        RoutineItem(title: '白湯を飲む', durationMinutes: 5),
+        RoutineItem(title: '白湯を飲む', durationMinutes: 5, order: 0),
       );
 
       await repository.delete(id);
@@ -77,17 +80,49 @@ void main() {
     test('保存先パスに uid が含まれている（自分のデータのみアクセス可）', () {
       expect(repository.collectionPath, contains(uid));
     });
+
+    test('デフォルトテンプレートを初回のみ投入できる', () async {
+      await repository.seedDefaultTemplates();
+      await repository.seedDefaultTemplates();
+
+      final items = await repository.findAll();
+
+      expect(items.length, 4);
+      expect(items.map((item) => item.order), orderedEquals([0, 1, 2, 3]));
+    });
+
+    test('完了率ログを日付単位で保存・取得できる', () async {
+      final log = RoutineLog(
+        date: DateTime(2026, 4, 7),
+        completedItemIds: ['doc-1', 'doc-2'],
+        totalItems: 4,
+      );
+
+      await repository.saveRoutineLog(log);
+
+      final fetched = await repository.findRoutineLogForDate(
+        DateTime(2026, 4, 7, 23, 59),
+      );
+
+      expect(fetched, log);
+      expect(fetched!.completionRate, 0.5);
+    });
   });
 
   group('RoutineItem', () {
     test('JSON へシリアライズ・デシリアライズできる', () {
-      final original = RoutineItem(title: '白湯を飲む', durationMinutes: 5);
+      final original = RoutineItem(
+        title: '白湯を飲む',
+        durationMinutes: 5,
+        order: 2,
+      );
 
       final json = original.toJson();
       final restored = RoutineItem.fromJson(json);
 
       expect(restored.title, original.title);
       expect(restored.durationMinutes, original.durationMinutes);
+      expect(restored.order, original.order);
     });
 
     test('タイトルが空の場合は ArgumentError を投げる', () {
@@ -102,6 +137,37 @@ void main() {
         () => RoutineItem(title: '白湯を飲む', durationMinutes: 0),
         throwsA(isA<ArgumentError>()),
       );
+    });
+
+    test('order が負数の場合は ArgumentError を投げる', () {
+      expect(
+        () => RoutineItem(title: '白湯を飲む', durationMinutes: 5, order: -1),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+  });
+
+  group('RoutineLog', () {
+    test('完了率を計算できる', () {
+      final log = RoutineLog(
+        date: DateTime(2026, 4, 7),
+        completedItemIds: ['a', 'b'],
+        totalItems: 4,
+      );
+
+      expect(log.completionRate, 0.5);
+    });
+
+    test('JSON へシリアライズ・デシリアライズできる', () {
+      final original = RoutineLog(
+        date: DateTime(2026, 4, 7),
+        completedItemIds: ['doc-1'],
+        totalItems: 3,
+      );
+
+      final restored = RoutineLog.fromJson(original.toJson());
+
+      expect(restored, original);
     });
   });
 }
