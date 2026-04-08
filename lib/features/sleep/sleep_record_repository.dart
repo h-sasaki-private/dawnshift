@@ -61,6 +61,10 @@ class FirebaseFirestoreClient implements FirestoreInterface {
     String? orderByField,
     bool descending = false,
   }) async {
+    assert(
+      orderByField != null || afterDate == null,
+      'afterDate を使う場合は orderByField の指定が必要です',
+    );
     Query<Map<String, dynamic>> firestoreQuery = _collection(collection);
 
     if (orderByField != null) {
@@ -95,7 +99,7 @@ class FirebaseFirestoreClient implements FirestoreInterface {
       return {'id': snapshot.id};
     }
 
-    return {...data, 'id': snapshot.id};
+    return {'id': snapshot.id, ...data};
   }
 }
 
