@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dawnshift/core/models/routine_suggestion.dart';
+import 'package:dawnshift/core/models/sleep_record.dart';
 import 'package:dawnshift/features/ai_suggestion/anthropic_client.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -94,9 +95,20 @@ class MockHttpClient implements HttpClientInterface {
 }
 
 void main() {
+  final request = NightSuggestionRequest(
+    recentSleepRecords: [
+      SleepRecord(
+        bedtime: DateTime(2026, 4, 6, 23, 15),
+        wakeTime: DateTime(2026, 4, 7, 6, 45),
+      ),
+    ],
+    recentSleepSummary: '- 2026-04-07: 就寝 23:15 / 起床 06:45 / 睡眠時間 7.5時間',
+  );
+
   group('AnthropicApiKeyProvider', () {
     test('flutter_dotenv から API キーを取得できる', () {
-      final dotEnv = DotEnv()..testLoad(fileInput: 'ANTHROPIC_API_KEY=test-key');
+      final dotEnv = DotEnv()
+        ..testLoad(fileInput: 'ANTHROPIC_API_KEY=test-key');
 
       final apiKey = AnthropicApiKeyProvider.fromDotEnv(dotEnv);
 
@@ -104,9 +116,9 @@ void main() {
     });
 
     test('環境変数 ANTHROPIC_API_KEY から API キーを取得できる', () {
-      final apiKey = AnthropicApiKeyProvider.fromEnvironment(
-        const {'ANTHROPIC_API_KEY': 'test-api-key'},
-      );
+      final apiKey = AnthropicApiKeyProvider.fromEnvironment(const {
+        'ANTHROPIC_API_KEY': 'test-api-key',
+      });
 
       expect(apiKey, 'test-api-key');
     });
@@ -128,9 +140,9 @@ void main() {
     });
   });
 
-  group('AnthropicClient', () {
+  group('AnthropicApiClient', () {
     test('厚労省ガイドラインがシステムプロンプトに含まれている', () {
-      final client = AnthropicClient(apiKey: 'test-api-key');
+      final client = AnthropicApiClient(apiKey: 'test-api-key');
 
       expect(client.systemPrompt, contains('健康づくりのための睡眠ガイド2023'));
       expect(client.systemPrompt, contains('6〜9時間'));
@@ -138,31 +150,24 @@ void main() {
     });
 
     test('ユーザーの睡眠情報を含むリクエスト本文を構築できる', () {
-      final client = AnthropicClient(apiKey: 'test-api-key');
+      final client = AnthropicApiClient(apiKey: 'test-api-key');
 
-      final requestBody = client.buildRequestBody(
-        bedtime: '23:15',
-        wakeTime: '06:45',
-        sleepDuration: 7.5,
-      );
+      final requestBody = client.buildRequestBody(request);
 
       expect(requestBody, contains('"stream":true'));
       expect(requestBody, contains('23:15'));
       expect(requestBody, contains('06:45'));
       expect(requestBody, contains('7.5'));
+      expect(requestBody, contains('2026-04-07'));
     });
 
     test('ストリーミング応答からルーティン提案と初回受信時間を返す', () async {
-      final client = AnthropicClient(
+      final client = AnthropicApiClient(
         apiKey: 'test-api-key',
         httpClient: MockHttpClient.streamingSuccess(),
       );
 
-      final result = await client.fetchRoutineSuggestion(
-        bedtime: '23:00',
-        wakeTime: '07:00',
-        sleepDuration: 8.0,
-      );
+      final result = await client.fetchRoutineSuggestion(request);
 
       expect(result.suggestion.targetBedtime, '23:00');
       expect(result.suggestion.routines, hasLength(2));
@@ -171,49 +176,37 @@ void main() {
     });
 
     test('401 の場合は AnthropicAuthException を投げる', () async {
-      final client = AnthropicClient(
+      final client = AnthropicApiClient(
         apiKey: 'invalid-key',
         httpClient: MockHttpClient.unauthorized(),
       );
 
       expect(
-        () => client.fetchRoutineSuggestion(
-          bedtime: '23:00',
-          wakeTime: '07:00',
-          sleepDuration: 8.0,
-        ),
+        () => client.fetchRoutineSuggestion(request),
         throwsA(isA<AnthropicAuthException>()),
       );
     });
 
     test('ネットワークエラーの場合は AnthropicNetworkException を投げる', () async {
-      final client = AnthropicClient(
+      final client = AnthropicApiClient(
         apiKey: 'test-api-key',
         httpClient: MockHttpClient.networkError(),
       );
 
       expect(
-        () => client.fetchRoutineSuggestion(
-          bedtime: '23:00',
-          wakeTime: '07:00',
-          sleepDuration: 8.0,
-        ),
+        () => client.fetchRoutineSuggestion(request),
         throwsA(isA<AnthropicNetworkException>()),
       );
     });
 
     test('本文にテキスト差分がない場合は AnthropicParseException を投げる', () async {
-      final client = AnthropicClient(
+      final client = AnthropicApiClient(
         apiKey: 'test-api-key',
         httpClient: MockHttpClient.emptyStream(),
       );
 
       expect(
-        () => client.fetchRoutineSuggestion(
-          bedtime: '23:00',
-          wakeTime: '07:00',
-          sleepDuration: 8.0,
-        ),
+        () => client.fetchRoutineSuggestion(request),
         throwsA(isA<AnthropicParseException>()),
       );
     });
