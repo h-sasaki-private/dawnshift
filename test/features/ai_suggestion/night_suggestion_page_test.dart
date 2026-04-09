@@ -5,8 +5,11 @@ import 'package:dawnshift/features/ai_suggestion/anthropic_client.dart';
 import 'package:dawnshift/features/ai_suggestion/night_suggestion_page.dart';
 import 'package:dawnshift/features/routine/routine_repository.dart';
 import 'package:dawnshift/features/sleep/sleep_record_repository.dart';
+import 'package:dawnshift/core/models/subscription_status.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../subscription/fake_subscription_service.dart';
 
 class FakeAnthropicClient implements AnthropicClient {
   FakeAnthropicClient(this.result);
@@ -35,6 +38,7 @@ void main() {
     late SleepRecordRepository sleepRepository;
     late RoutineRepository routineRepository;
     late AnthropicClient anthropicClient;
+    late FakeSubscriptionService subscriptionService;
 
     setUp(() async {
       sleepRepository = SleepRecordRepository(
@@ -57,6 +61,9 @@ void main() {
           timeToFirstChunk: Duration(milliseconds: 800),
         ),
       );
+      subscriptionService = FakeSubscriptionService(
+        initialStatus: SubscriptionStatus.premium(),
+      );
 
       await sleepRepository.save(
         SleepRecord(
@@ -76,6 +83,7 @@ void main() {
             sleepRepository: sleepRepository,
             routineRepository: routineRepository,
             anthropicClient: anthropicClient,
+            subscriptionService: subscriptionService,
             now: () => DateTime(2026, 4, 7, 21),
           ),
         ),
@@ -116,6 +124,7 @@ void main() {
             sleepRepository: sleepRepository,
             routineRepository: routineRepository,
             anthropicClient: anthropicClient,
+            subscriptionService: subscriptionService,
             now: () => DateTime(2026, 4, 7, 21),
           ),
         ),
@@ -126,6 +135,36 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('睡眠記録を1件以上登録すると提案を作成できます'), findsOneWidget);
+    });
+
+    testWidgets('未加入ユーザーにはペイウォールを表示し購入後に提案作成を解放する', (tester) async {
+      subscriptionService = FakeSubscriptionService(
+        initialStatus: SubscriptionStatus.free(),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NightSuggestionPage(
+            sleepRepository: sleepRepository,
+            routineRepository: routineRepository,
+            anthropicClient: anthropicClient,
+            subscriptionService: subscriptionService,
+            now: () => DateTime(2026, 4, 7, 21),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('AIアドバイスはプレミアム限定です'), findsOneWidget);
+      expect(find.text('無料プラン'), findsOneWidget);
+      expect(find.text('プレミアムプラン'), findsOneWidget);
+      expect(find.byKey(const Key('generate-night-suggestion')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('purchase-premium')));
+      await tester.pumpAndSettle();
+
+      expect(subscriptionService.purchaseCalls, 1);
+      expect(find.byKey(const Key('generate-night-suggestion')), findsOneWidget);
     });
   });
 }

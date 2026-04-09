@@ -1,17 +1,28 @@
 import 'package:dawnshift/features/routine/routine_repository.dart';
 import 'package:dawnshift/core/models/routine_item.dart';
 import 'package:dawnshift/core/models/routine_log.dart';
+import 'package:dawnshift/core/models/subscription_status.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../subscription/fake_subscription_service.dart';
 
 /// Issue #2: Firestore ルーティン項目 CRUD
 /// 完了条件: ルーティンデータの読み書きができること
 void main() {
   group('RoutineRepository', () {
     late RoutineRepository repository;
+    late FakeSubscriptionService subscriptionService;
     const uid = 'user-123';
 
     setUp(() {
-      repository = RoutineRepository(store: FakeFirestore(), uid: uid);
+      subscriptionService = FakeSubscriptionService(
+        initialStatus: SubscriptionStatus.premium(),
+      );
+      repository = RoutineRepository(
+        store: FakeFirestore(),
+        uid: uid,
+        subscriptionService: subscriptionService,
+      );
     });
 
     // ─── 追加 ───────────────────────────────────────────────────
@@ -106,6 +117,29 @@ void main() {
 
       expect(fetched, log);
       expect(fetched!.completionRate, 0.5);
+    });
+
+    test('無料プランではルーティン項目を5件までしか追加できない', () async {
+      repository = RoutineRepository(
+        store: FakeFirestore(),
+        uid: uid,
+        subscriptionService: FakeSubscriptionService(
+          initialStatus: SubscriptionStatus.free(),
+        ),
+      );
+
+      for (var index = 0; index < 5; index++) {
+        await repository.add(
+          RoutineItem(title: '項目$index', durationMinutes: 5, order: index),
+        );
+      }
+
+      expect(
+        () => repository.add(
+          RoutineItem(title: '6件目', durationMinutes: 5, order: 5),
+        ),
+        throwsA(isA<RoutineLimitExceededException>()),
+      );
     });
   });
 
