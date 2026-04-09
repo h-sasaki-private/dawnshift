@@ -1,17 +1,28 @@
 import 'package:dawnshift/core/models/routine_item.dart';
 import 'package:dawnshift/core/models/routine_log.dart';
+import 'package:dawnshift/core/models/subscription_status.dart';
 import 'package:dawnshift/features/routine/morning_routine_page.dart';
 import 'package:dawnshift/features/routine/routine_repository.dart';
 import 'package:dawnshift/features/routine/routine_settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../subscription/fake_subscription_service.dart';
+
 void main() {
   group('RoutineSettingsPage', () {
     late RoutineRepository repository;
+    late FakeSubscriptionService subscriptionService;
 
     setUp(() {
-      repository = RoutineRepository(store: FakeFirestore(), uid: 'user-123');
+      subscriptionService = FakeSubscriptionService(
+        initialStatus: SubscriptionStatus.free(),
+      );
+      repository = RoutineRepository(
+        store: FakeFirestore(),
+        uid: 'user-123',
+        subscriptionService: subscriptionService,
+      );
     });
 
     testWidgets('デフォルトテンプレートを表示し項目を追加・編集・削除できる', (tester) async {
@@ -24,6 +35,8 @@ void main() {
       expect(find.text('朝食'), findsOneWidget);
       expect(find.text('白湯'), findsOneWidget);
       expect(find.text('読書'), findsOneWidget);
+      expect(find.text('無料プラン'), findsOneWidget);
+      expect(find.text('プレミアムプラン'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('add-routine-item')));
       await tester.pumpAndSettle();
@@ -40,6 +53,8 @@ void main() {
 
       expect(find.text('日光を浴びる'), findsOneWidget);
 
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('edit-routine-日光を浴びる')));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -56,6 +71,8 @@ void main() {
       expect(find.text('深呼吸'), findsOneWidget);
       expect(find.text('日光を浴びる'), findsNothing);
 
+      await tester.drag(find.byType(ListView), const Offset(0, -200));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('delete-routine-深呼吸')));
       await tester.pumpAndSettle();
 
@@ -94,6 +111,42 @@ void main() {
         orderedEquals(['散歩', '白湯', '読書', '瞑想']),
       );
       expect(items.map((item) => item.order), orderedEquals([0, 1, 2, 3]));
+    });
+
+    testWidgets('無料プランで5件に達すると追加時に制限メッセージを表示する', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(home: RoutineSettingsPage(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('add-routine-item')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('routine-title-field')),
+        '瞑想',
+      );
+      await tester.enterText(
+        find.byKey(const Key('routine-duration-field')),
+        '12',
+      );
+      await tester.tap(find.byKey(const Key('save-routine-item')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('add-routine-item')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('routine-title-field')),
+        '6件目',
+      );
+      await tester.enterText(
+        find.byKey(const Key('routine-duration-field')),
+        '8',
+      );
+      await tester.tap(find.byKey(const Key('save-routine-item')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('無料プランの上限は5件です。プレミアムで解除できます。'), findsOneWidget);
+      expect(find.text('6件目'), findsNothing);
     });
   });
 

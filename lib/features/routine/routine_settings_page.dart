@@ -117,10 +117,24 @@ class _RoutineSettingsPageState extends State<RoutineSettingsPage> {
       order: item?.order ?? _nextOrder(),
     );
 
-    if (item == null) {
-      await widget.repository.add(routineItem);
-    } else {
-      await widget.repository.update(item.id!, routineItem);
+    try {
+      if (item == null) {
+        await widget.repository.add(routineItem);
+      } else {
+        await widget.repository.update(item.id!, routineItem);
+      }
+    } on RoutineLimitExceededException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '無料プランの上限は${error.limit}件です。プレミアムで解除できます。',
+          ),
+        ),
+      );
+      return;
     }
 
     await _loadItems();
@@ -171,6 +185,8 @@ class _RoutineSettingsPageState extends State<RoutineSettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          const _PlanComparisonCard(),
+          const SizedBox(height: 16),
           for (final item in _items)
             Card(
               child: ListTile(
@@ -194,6 +210,31 @@ class _RoutineSettingsPageState extends State<RoutineSettingsPage> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _PlanComparisonCard extends StatelessWidget {
+  const _PlanComparisonCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text('無料/有料プラン'),
+            SizedBox(height: 12),
+            Text('無料プラン'),
+            Text('睡眠記録・基本ルーティン設定・ルーティン5件まで'),
+            SizedBox(height: 12),
+            Text('プレミアムプラン'),
+            Text('AIアドバイス・週次レポート・ルーティン無制限'),
+          ],
+        ),
       ),
     );
   }

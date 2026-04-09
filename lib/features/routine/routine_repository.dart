@@ -1,25 +1,44 @@
 import 'package:dawnshift/core/models/routine_item.dart';
 import 'package:dawnshift/core/models/routine_log.dart';
 import 'package:dawnshift/features/sleep/sleep_record_repository.dart';
+import 'package:dawnshift/features/subscription/subscription_service.dart';
 
 export 'package:dawnshift/features/sleep/sleep_record_repository.dart'
     show FakeFirestore, FirestoreInterface;
 
 // ─── RoutineRepository ────────────────────────────────────────
 
+class RoutineLimitExceededException implements Exception {
+  const RoutineLimitExceededException(this.limit);
+
+  final int limit;
+
+  @override
+  String toString() => 'RoutineLimitExceededException: 無料プランの上限は$limit件です。';
+}
+
 class RoutineRepository {
-  RoutineRepository({required FirestoreInterface store, required String uid})
+  RoutineRepository({
+    required FirestoreInterface store,
+    required String uid,
+    SubscriptionService? subscriptionService,
+  })
     : _store = store,
-      _uid = uid;
+      _uid = uid,
+      subscriptionService = subscriptionService;
 
   final FirestoreInterface _store;
   final String _uid;
+  final SubscriptionService? subscriptionService;
+  static const freePlanItemLimit = 5;
 
   String get collectionPath => 'users/$_uid/routines';
   String get routineLogCollectionPath => 'users/$_uid/routine_logs';
 
-  Future<String> add(RoutineItem item) =>
-      _store.add(collectionPath, item.toJson());
+  Future<String> add(RoutineItem item) async {
+    await _enforceFreePlanLimit();
+    return _store.add(collectionPath, item.toJson());
+  }
 
   Future<List<RoutineItem>> findAll() async {
     final docs = await _store.query(collectionPath, orderByField: 'order');
@@ -64,6 +83,23 @@ class RoutineRepository {
     final month = normalized.month.toString().padLeft(2, '0');
     final day = normalized.day.toString().padLeft(2, '0');
     return '${normalized.year}-$month-$day';
+  }
+
+  Future<void> _enforceFreePlanLimit() async {
+    final service = subscriptionService;
+    if (service == null) {
+      return;
+    }
+
+    final status = await service.getCurrentStatus();
+    if (status.isPremium) {
+      return;
+    }
+
+    final existingItems = await findAll();
+    if (existingItems.length >= freePlanItemLimit) {
+      throw const RoutineLimitExceededException(freePlanItemLimit);
+    }
   }
 }
 
