@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dawnshift/core/models/routine_suggestion.dart';
+import 'package:dawnshift/core/models/sleep_record.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class AnthropicAuthException implements Exception {
@@ -37,16 +38,12 @@ class AnthropicApiKeyProvider {
     final source = dotEnv ?? dotenv;
 
     if (!source.isInitialized) {
-      throw ArgumentError(
-        'dotenv が初期化されていません。ANTHROPIC_API_KEY を読み込めません。',
-      );
+      throw ArgumentError('dotenv が初期化されていません。ANTHROPIC_API_KEY を読み込めません。');
     }
 
     final apiKey = source.env['ANTHROPIC_API_KEY']?.trim();
     if (apiKey == null || apiKey.isEmpty) {
-      throw ArgumentError(
-        '環境変数 ANTHROPIC_API_KEY が設定されていません。',
-      );
+      throw ArgumentError('環境変数 ANTHROPIC_API_KEY が設定されていません。');
     }
 
     return apiKey;
@@ -57,9 +54,7 @@ class AnthropicApiKeyProvider {
     final apiKey = source['ANTHROPIC_API_KEY']?.trim();
 
     if (apiKey == null || apiKey.isEmpty) {
-      throw ArgumentError(
-        '環境変数 ANTHROPIC_API_KEY が設定されていません。',
-      );
+      throw ArgumentError('環境変数 ANTHROPIC_API_KEY が設定されていません。');
     }
 
     return apiKey;
@@ -75,26 +70,45 @@ abstract class HttpClientInterface {
 }
 
 class StreamedHttpResponse {
-  const StreamedHttpResponse({
-    required this.statusCode,
-    required this.body,
-  });
+  const StreamedHttpResponse({required this.statusCode, required this.body});
 
   final int statusCode;
   final Stream<String> body;
 }
 
-class AnthropicClient {
-  AnthropicClient({
+class NightSuggestionRequest {
+  const NightSuggestionRequest({
+    required this.recentSleepRecords,
+    required this.recentSleepSummary,
+  });
+
+  final List<SleepRecord> recentSleepRecords;
+  final String recentSleepSummary;
+
+  SleepRecord get latestSleepRecord => recentSleepRecords.first;
+}
+
+abstract class AnthropicClient {
+  String get systemPrompt;
+
+  String buildUserPrompt(NightSuggestionRequest request);
+
+  String buildRequestBody(NightSuggestionRequest request);
+
+  Future<RoutineSuggestionResult> fetchRoutineSuggestion(
+    NightSuggestionRequest request,
+  );
+}
+
+class AnthropicApiClient implements AnthropicClient {
+  AnthropicApiClient({
     required this.apiKey,
     HttpClientInterface? httpClient,
     Stopwatch Function()? stopwatchFactory,
-  })  : _httpClient = httpClient ?? _DefaultHttpClient(),
-        _stopwatchFactory = stopwatchFactory ?? Stopwatch.new {
+  }) : _httpClient = httpClient ?? _DefaultHttpClient(),
+       _stopwatchFactory = stopwatchFactory ?? Stopwatch.new {
     if (apiKey.trim().isEmpty) {
-      throw ArgumentError(
-        'APIキーが空です。環境変数 ANTHROPIC_API_KEY を設定してください。',
-      );
+      throw ArgumentError('APIキーが空です。環境変数 ANTHROPIC_API_KEY を設定してください。');
     }
   }
 
@@ -105,6 +119,7 @@ class AnthropicClient {
   final HttpClientInterface _httpClient;
   final Stopwatch Function() _stopwatchFactory;
 
+  @override
   String get systemPrompt => '''
 あなたは睡眠改善の専門アドバイザーです。
 厚生労働省「健康づくりのための睡眠ガイド2023」の要点を守り、
@@ -125,49 +140,44 @@ class AnthropicClient {
 }
 ''';
 
-  String buildUserPrompt({
-    required String bedtime,
-    required String wakeTime,
-    required double sleepDuration,
-  }) {
-    return '''
-昨夜の就寝時刻: $bedtime
-今朝の起床時刻: $wakeTime
-睡眠時間: ${sleepDuration.toStringAsFixed(1)}時間
+  @override
+  String buildUserPrompt(NightSuggestionRequest request) {
+    final latest = request.latestSleepRecord;
+    final latestBedtime = _formatTime(latest.bedtime);
+    final latestWakeTime = _formatTime(latest.wakeTime);
+    final latestDuration = latest.sleepDuration.inMinutes / 60;
 
-このユーザーが無理なく続けられる翌朝のルーティンを2件提案し、
+    return '''
+直近の睡眠記録:
+${request.recentSleepSummary}
+
+最新の睡眠:
+- 就寝時刻: $latestBedtime
+- 起床時刻: $latestWakeTime
+- 睡眠時間: ${latestDuration.toStringAsFixed(1)}時間
+
+このユーザーが無理なく続けられる翌朝のルーティンを2〜3件提案し、
 推奨就寝時刻も返してください。
 ''';
   }
 
-  String buildRequestBody({
-    required String bedtime,
-    required String wakeTime,
-    required double sleepDuration,
-  }) {
+  @override
+  String buildRequestBody(NightSuggestionRequest request) {
     return jsonEncode({
       'model': _model,
       'max_tokens': 512,
       'stream': true,
       'system': systemPrompt,
       'messages': [
-        {
-          'role': 'user',
-          'content': buildUserPrompt(
-            bedtime: bedtime,
-            wakeTime: wakeTime,
-            sleepDuration: sleepDuration,
-          ),
-        },
+        {'role': 'user', 'content': buildUserPrompt(request)},
       ],
     });
   }
 
-  Future<RoutineSuggestionResult> fetchRoutineSuggestion({
-    required String bedtime,
-    required String wakeTime,
-    required double sleepDuration,
-  }) async {
+  @override
+  Future<RoutineSuggestionResult> fetchRoutineSuggestion(
+    NightSuggestionRequest request,
+  ) async {
     final stopwatch = _stopwatchFactory()..start();
     Duration? firstChunkLatency;
     final textBuffer = StringBuffer();
@@ -181,11 +191,7 @@ class AnthropicClient {
           'content-type': 'application/json',
           'accept': 'text/event-stream',
         },
-        body: buildRequestBody(
-          bedtime: bedtime,
-          wakeTime: wakeTime,
-          sleepDuration: sleepDuration,
-        ),
+        body: buildRequestBody(request),
       );
 
       if (response.statusCode == 401) {
@@ -245,6 +251,12 @@ class AnthropicClient {
       }
     }
   }
+
+  String _formatTime(DateTime dateTime) {
+    final hour = dateTime.hour.toString().padLeft(2, '0');
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
 }
 
 class _DefaultHttpClient implements HttpClientInterface {
@@ -258,13 +270,11 @@ class _DefaultHttpClient implements HttpClientInterface {
     final request = await client.postUrl(uri);
     headers.forEach(request.headers.set);
     request.write(body);
-
     final response = await request.close();
-    final stream = response.transform(utf8.decoder);
 
     return StreamedHttpResponse(
       statusCode: response.statusCode,
-      body: stream,
+      body: response.transform(utf8.decoder),
     );
   }
 }
