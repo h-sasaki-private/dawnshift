@@ -5,6 +5,7 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
+import 'package:dawnshift/features/auth/auth_service.dart';
 import 'package:dawnshift/features/onboarding/onboarding_repository.dart';
 import 'package:dawnshift/features/sleep/sleep_record_repository.dart';
 import 'package:dawnshift/main.dart';
@@ -17,8 +18,11 @@ void main() {
       preferences: _FakePreferences(),
       uid: 'test-user',
     );
+    final authService = AuthService(provider: FakeAuthProvider());
 
-    await tester.pumpWidget(App(repository: repository));
+    await tester.pumpWidget(
+      App(repository: repository, authService: authService),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Onboarding'), findsOneWidget);

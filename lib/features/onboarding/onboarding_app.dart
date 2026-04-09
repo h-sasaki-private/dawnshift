@@ -1,12 +1,15 @@
+import 'package:dawnshift/features/auth/auth_service.dart';
 import 'package:dawnshift/core/models/user_profile.dart';
 import 'package:dawnshift/features/onboarding/onboarding_page.dart';
 import 'package:dawnshift/features/onboarding/onboarding_repository.dart';
+import 'package:dawnshift/features/settings/settings_page.dart';
 import 'package:flutter/material.dart';
 
 class OnboardingApp extends StatefulWidget {
   const OnboardingApp({
     super.key,
     required this.repository,
+    required this.authService,
     this.currentBedtimePicker,
     this.currentWakeTimePicker,
     this.idealBedtimePicker,
@@ -14,6 +17,7 @@ class OnboardingApp extends StatefulWidget {
   });
 
   final OnboardingRepository repository;
+  final AuthService authService;
   final TimePickerCallback? currentBedtimePicker;
   final TimePickerCallback? currentWakeTimePicker;
   final TimePickerCallback? idealBedtimePicker;
@@ -71,9 +75,7 @@ class _OnboardingAppState extends State<OnboardingApp> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (_showOnboarding) {
@@ -92,15 +94,21 @@ class _OnboardingAppState extends State<OnboardingApp> {
     return _HomePage(
       profile: _profile,
       onEdit: _openOnboarding,
+      authService: widget.authService,
     );
   }
 }
 
 class _HomePage extends StatelessWidget {
-  const _HomePage({required this.profile, required this.onEdit});
+  const _HomePage({
+    required this.profile,
+    required this.onEdit,
+    required this.authService,
+  });
 
   final UserProfile? profile;
   final VoidCallback onEdit;
+  final AuthService authService;
 
   @override
   Widget build(BuildContext context) {
@@ -121,6 +129,18 @@ class _HomePage extends StatelessWidget {
               key: const Key('edit-onboarding'),
               onPressed: onEdit,
               child: const Text('プロフィールを編集'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              key: const Key('open-settings'),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => SettingsPage(authService: authService),
+                  ),
+                );
+              },
+              child: const Text('設定'),
             ),
           ],
         ),

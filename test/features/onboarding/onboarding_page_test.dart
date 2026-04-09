@@ -1,6 +1,7 @@
 import 'package:dawnshift/features/onboarding/onboarding_app.dart';
 import 'package:dawnshift/features/onboarding/onboarding_page.dart';
 import 'package:dawnshift/features/onboarding/onboarding_repository.dart';
+import 'package:dawnshift/features/auth/auth_service.dart';
 import 'package:dawnshift/features/routine/routine_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,14 +39,14 @@ class FakeSharedPreferences implements SharedPreferencesStore {
 Future<TimeOfDay?> _fixedPicker(
   BuildContext context,
   TimeOfDay initialTime,
-) async =>
-    initialTime;
+) async => initialTime;
 
 void main() {
   group('OnboardingPage', () {
     late FakeFirestore firestore;
     late FakeSharedPreferences preferences;
     late OnboardingRepository repository;
+    late AuthService authService;
 
     setUp(() {
       firestore = FakeFirestore();
@@ -55,6 +56,7 @@ void main() {
         preferences: preferences,
         uid: 'user-123',
       );
+      authService = AuthService(provider: FakeAuthProvider());
     });
 
     testWidgets('入力内容を保存して完了できる', (tester) async {
@@ -135,6 +137,7 @@ void main() {
     late FakeFirestore firestore;
     late FakeSharedPreferences preferences;
     late OnboardingRepository repository;
+    late AuthService authService;
 
     setUp(() {
       firestore = FakeFirestore();
@@ -144,6 +147,7 @@ void main() {
         preferences: preferences,
         uid: 'user-123',
       );
+      authService = AuthService(provider: FakeAuthProvider());
     });
 
     testWidgets('初回起動では onboarding を表示し、完了後はホームを表示する', (tester) async {
@@ -151,6 +155,7 @@ void main() {
         MaterialApp(
           home: OnboardingApp(
             repository: repository,
+            authService: authService,
             currentBedtimePicker: (_, __) async =>
                 const TimeOfDay(hour: 23, minute: 15),
             currentWakeTimePicker: (_, __) async =>
@@ -185,7 +190,9 @@ void main() {
 
     testWidgets('スキップした後もホームから再編集できる', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(home: OnboardingApp(repository: repository)),
+        MaterialApp(
+          home: OnboardingApp(repository: repository, authService: authService),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -200,6 +207,24 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('ideal-wake-time-field')), findsOneWidget);
+    });
+
+    testWidgets('ホームから設定画面へ遷移できる', (tester) async {
+      await preferences.setBool(repository.completedKey, true);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OnboardingApp(repository: repository, authService: authService),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('open-settings')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('open-settings')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('設定'), findsOneWidget);
     });
   });
 }
