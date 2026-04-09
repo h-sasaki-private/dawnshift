@@ -94,6 +94,28 @@ void main() {
       expect(authService.currentUser, isNull);
     });
 
+    test('アカウント削除後は currentUser が null になり再ログインできない', () async {
+      await authService.registerWithEmail(
+        email: 'delete@example.com',
+        password: 'Password123!',
+      );
+
+      await authService.deleteAccount();
+
+      expect(authService.currentUser, isNull);
+      expect(
+        () => authService.signInWithEmail(
+          email: 'delete@example.com',
+          password: 'Password123!',
+        ),
+        throwsA(isA<UserNotFoundException>()),
+      );
+    });
+
+    test('未ログイン状態でアカウント削除すると StateError を投げる', () {
+      expect(() => authService.deleteAccount(), throwsA(isA<StateError>()));
+    });
+
     // ─── 認証状態 ───────────────────────────────────────────────
 
     test('ログイン済みユーザーの UID が取得できる', () async {

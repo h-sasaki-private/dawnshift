@@ -47,6 +47,8 @@ abstract class AuthProvider {
 
   Future<void> signOut();
 
+  Future<void> deleteAccount();
+
   AppUser? get currentUser;
 
   Stream<AppUser?> get authStateChanges;
@@ -54,7 +56,7 @@ abstract class AuthProvider {
 
 class FirebaseAuthProvider implements AuthProvider {
   FirebaseAuthProvider({FirebaseAuth? firebaseAuth})
-      : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance;
+    : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance;
 
   final FirebaseAuth _firebaseAuth;
 
@@ -100,6 +102,16 @@ class FirebaseAuthProvider implements AuthProvider {
   @override
   Future<void> signOut() => _firebaseAuth.signOut();
 
+  @override
+  Future<void> deleteAccount() async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw StateError('削除対象のユーザーがログインしていません。');
+    }
+
+    await user.delete();
+  }
+
   AppUser? _mapUser(User? user) {
     if (user == null || user.email == null) {
       return null;
@@ -117,7 +129,10 @@ class FirebaseAuthProvider implements AuthProvider {
     return appUser;
   }
 
-  Exception _mapFirebaseAuthException(FirebaseAuthException error, String email) {
+  Exception _mapFirebaseAuthException(
+    FirebaseAuthException error,
+    String email,
+  ) {
     switch (error.code) {
       case 'email-already-in-use':
         return EmailAlreadyInUseException(email);
@@ -127,7 +142,9 @@ class FirebaseAuthProvider implements AuthProvider {
       case 'invalid-credential':
         return const WrongPasswordException();
       default:
-        return Exception('FirebaseAuthException(${error.code}): ${error.message}');
+        return Exception(
+          'FirebaseAuthException(${error.code}): ${error.message}',
+        );
     }
   }
 }
@@ -178,6 +195,18 @@ class FakeAuthProvider implements AuthProvider {
     _currentUser = null;
     _stateController.add(null);
   }
+
+  @override
+  Future<void> deleteAccount() async {
+    final user = _currentUser;
+    if (user == null) {
+      throw StateError('削除対象のユーザーがログインしていません。');
+    }
+
+    _users.remove(user.email);
+    _currentUser = null;
+    _stateController.add(null);
+  }
 }
 
 // ─── AuthService ──────────────────────────────────────────────
@@ -194,14 +223,14 @@ class AuthService {
   Future<AppUser> registerWithEmail({
     required String email,
     required String password,
-  }) =>
-      _provider.registerWithEmail(email: email, password: password);
+  }) => _provider.registerWithEmail(email: email, password: password);
 
   Future<AppUser> signInWithEmail({
     required String email,
     required String password,
-  }) =>
-      _provider.signInWithEmail(email: email, password: password);
+  }) => _provider.signInWithEmail(email: email, password: password);
 
   Future<void> signOut() => _provider.signOut();
+
+  Future<void> deleteAccount() => _provider.deleteAccount();
 }
