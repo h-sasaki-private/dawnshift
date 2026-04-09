@@ -22,10 +22,9 @@ class RoutineRepository {
     required FirestoreInterface store,
     required String uid,
     SubscriptionService? subscriptionService,
-  })
-    : _store = store,
-      _uid = uid,
-      subscriptionService = subscriptionService;
+  }) : _store = store,
+       _uid = uid,
+       subscriptionService = subscriptionService;
 
   final FirestoreInterface _store;
   final String _uid;
@@ -76,6 +75,22 @@ class RoutineRepository {
     }
 
     return RoutineLog.fromJson(data);
+  }
+
+  Future<List<RoutineLog>> getRecentLogs({required DateTime from}) async {
+    final sevenDaysAgo = DateTime(
+      from.year,
+      from.month,
+      from.day,
+    ).subtract(const Duration(days: 7));
+    final docs = await _store.query(
+      routineLogCollectionPath,
+      afterDate: sevenDaysAgo,
+      limit: 7,
+      orderByField: 'date',
+      descending: true,
+    );
+    return docs.map((doc) => RoutineLog.fromJson(doc.data)).toList();
   }
 
   String _dateKey(DateTime date) {

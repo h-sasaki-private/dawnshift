@@ -119,6 +119,39 @@ void main() {
       expect(fetched!.completionRate, 0.5);
     });
 
+    test('直近7日分の完了率ログを新しい順で取得できる', () async {
+      await repository.saveRoutineLog(
+        RoutineLog(
+          date: DateTime(2026, 4, 1),
+          completedItemIds: const ['a'],
+          totalItems: 2,
+        ),
+      );
+      await repository.saveRoutineLog(
+        RoutineLog(
+          date: DateTime(2026, 4, 8),
+          completedItemIds: const ['a', 'b', 'c'],
+          totalItems: 4,
+        ),
+      );
+      await repository.saveRoutineLog(
+        RoutineLog(
+          date: DateTime(2026, 4, 9),
+          completedItemIds: const ['a'],
+          totalItems: 4,
+        ),
+      );
+
+      final logs = await repository.getRecentLogs(
+        from: DateTime(2026, 4, 9, 22),
+      );
+
+      expect(logs.map((log) => log.date), [
+        DateTime(2026, 4, 9),
+        DateTime(2026, 4, 8),
+      ]);
+    });
+
     test('無料プランではルーティン項目を5件までしか追加できない', () async {
       repository = RoutineRepository(
         store: FakeFirestore(),
