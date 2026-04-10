@@ -1,10 +1,3 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:dawnshift/features/auth/auth_service.dart';
 import 'package:dawnshift/features/onboarding/onboarding_repository.dart';
 import 'package:dawnshift/features/sleep/sleep_record_repository.dart';
@@ -12,18 +5,36 @@ import 'package:dawnshift/main.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('App renders title', (WidgetTester tester) async {
+  testWidgets('未ログイン時はログイン画面を表示する', (WidgetTester tester) async {
+    final authService = AuthService(provider: FakeAuthProvider());
+
+    await tester.pumpWidget(App(authService: authService));
+    await tester.pump();
+
+    expect(find.text('ログイン'), findsWidgets);
+  });
+
+  testWidgets('ログイン済みの場合はオンボーディング画面を表示する', (WidgetTester tester) async {
+    final fakeAuth = FakeAuthProvider();
+    await fakeAuth.registerWithEmail(
+      email: 'test@example.com',
+      password: 'password123',
+    );
+    final authService = AuthService(provider: fakeAuth);
+
     final repository = OnboardingRepository(
       firestore: FakeFirestore(),
       preferences: _FakePreferences(),
       uid: 'test-user',
     );
-    final authService = AuthService(provider: FakeAuthProvider());
 
     await tester.pumpWidget(
       App(repository: repository, authService: authService),
     );
-    await tester.pumpAndSettle();
+    // ストリームの初期値 → FutureBuilder → OnboardingApp の _bootstrap を待つ
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.text('Onboarding'), findsOneWidget);
   });

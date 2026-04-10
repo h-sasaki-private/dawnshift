@@ -1,8 +1,10 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'firebase_options.dart';
 import 'features/auth/auth_service.dart';
+import 'features/auth/login_page.dart';
 import 'features/onboarding/onboarding_app.dart';
 import 'features/onboarding/onboarding_repository.dart';
 import 'features/sleep/sleep_record_repository.dart';
@@ -10,6 +12,11 @@ import 'features/sleep/sleep_record_repository.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  try {
+    await dotenv.load();
+  } catch (_) {
+    // .env がない場合は無視
+  }
   runApp(const App());
 }
 
@@ -24,59 +31,65 @@ class App extends StatefulWidget {
 }
 
 class _AppState extends State<App> {
-  Future<OnboardingRepository>? _repositoryFuture;
+  late final AuthService _authService;
 
   @override
   void initState() {
     super.initState();
-    _repositoryFuture = widget.repository != null
-        ? Future<OnboardingRepository>.value(widget.repository)
-        : _buildRepository();
+    _authService =
+        widget.authService ?? AuthService(provider: FirebaseAuthProvider());
   }
 
-  Future<OnboardingRepository> _buildRepository() async {
-    final localStore = await createSharedPreferencesStore();
-    final profileId =
-        localStore.getString('onboarding_profile_id') ??
-        'profile-${DateTime.now().millisecondsSinceEpoch}';
-
-    if (localStore.getString('onboarding_profile_id') == null) {
-      await localStore.setString('onboarding_profile_id', profileId);
+  Future<OnboardingRepository> _buildRepository(String uid) async {
+    if (widget.repository != null) {
+      return widget.repository!;
     }
-
+    final localStore = await createSharedPreferencesStore();
     return OnboardingRepository(
       firestore: FirebaseFirestoreClient(),
       preferences: localStore,
-      uid: profileId,
+      uid: uid,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<OnboardingRepository>(
-      future: _repositoryFuture,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const MaterialApp(
-            home: Scaffold(body: Center(child: CircularProgressIndicator())),
-          );
-        }
+    return MaterialApp(
+      title: 'dawnshift',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF3C6E71),
+        ),
+      ),
+      home: StreamBuilder<AppUser?>(
+        stream: _authService.authStateChanges,
+        initialData: _authService.currentUser,
+        builder: (context, snapshot) {
+          final user = snapshot.data;
 
-        return MaterialApp(
-          title: 'dawnshift',
-          theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF3C6E71),
-            ),
-          ),
-          home: OnboardingApp(
-            repository: snapshot.data!,
-            authService:
-                widget.authService ??
-                AuthService(provider: FirebaseAuthProvider()),
-          ),
-        );
-      },
+          // 未ログイン → ログイン画面
+          if (user == null) {
+            return LoginPage(authService: _authService);
+          }
+
+          // ログイン済み → リポジトリを構築してオンボーディングへ
+          return FutureBuilder<OnboardingRepository>(
+            future: _buildRepository(user.uid),
+            builder: (context, repoSnapshot) {
+              if (!repoSnapshot.hasData) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              return OnboardingApp(
+                repository: repoSnapshot.data!,
+                authService: _authService,
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }
