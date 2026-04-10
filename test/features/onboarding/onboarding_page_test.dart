@@ -2,9 +2,19 @@ import 'package:dawnshift/features/onboarding/onboarding_app.dart';
 import 'package:dawnshift/features/onboarding/onboarding_page.dart';
 import 'package:dawnshift/features/onboarding/onboarding_repository.dart';
 import 'package:dawnshift/features/auth/auth_service.dart';
+import 'package:dawnshift/features/ai_suggestion/anthropic_client.dart';
+import 'package:dawnshift/features/ai_suggestion/night_suggestion_page.dart';
 import 'package:dawnshift/features/routine/routine_repository.dart';
+import 'package:dawnshift/features/review/review_page.dart';
+import 'package:dawnshift/features/sleep/sleep_record_page.dart';
+import 'package:dawnshift/features/sleep/sleep_record_repository.dart';
+import 'package:dawnshift/core/models/routine_suggestion.dart';
+import 'package:dawnshift/core/models/subscription_status.dart';
+import 'package:dawnshift/features/subscription/subscription_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../subscription/fake_subscription_service.dart';
 
 class FakeSharedPreferences implements SharedPreferencesStore {
   final _boolValues = <String, bool>{};
@@ -41,12 +51,37 @@ Future<TimeOfDay?> _fixedPicker(
   TimeOfDay initialTime,
 ) async => initialTime;
 
+class FakeAnthropicClient implements AnthropicClient {
+  @override
+  String get systemPrompt => 'test';
+
+  @override
+  String buildRequestBody(NightSuggestionRequest request) => '';
+
+  @override
+  String buildUserPrompt(NightSuggestionRequest request) => '';
+
+  @override
+  Future<RoutineSuggestionResult> fetchRoutineSuggestion(
+    NightSuggestionRequest request,
+  ) async {
+    return const RoutineSuggestionResult(
+      suggestion: RoutineSuggestion(targetBedtime: '22:30', routines: []),
+      timeToFirstChunk: Duration(milliseconds: 100),
+    );
+  }
+}
+
 void main() {
   group('OnboardingPage', () {
     late FakeFirestore firestore;
     late FakeSharedPreferences preferences;
     late OnboardingRepository repository;
     late AuthService authService;
+    late SleepRecordRepository sleepRepository;
+    late RoutineRepository routineRepository;
+    late AnthropicClient anthropicClient;
+    late SubscriptionService subscriptionService;
 
     setUp(() {
       firestore = FakeFirestore();
@@ -57,6 +92,15 @@ void main() {
         uid: 'user-123',
       );
       authService = AuthService(provider: FakeAuthProvider());
+      sleepRepository = SleepRecordRepository(
+        store: firestore,
+        uid: 'user-123',
+      );
+      routineRepository = RoutineRepository(store: firestore, uid: 'user-123');
+      anthropicClient = FakeAnthropicClient();
+      subscriptionService = FakeSubscriptionService(
+        initialStatus: SubscriptionStatus.free(),
+      );
     });
 
     testWidgets('入力内容を保存して完了できる', (tester) async {
@@ -138,6 +182,10 @@ void main() {
     late FakeSharedPreferences preferences;
     late OnboardingRepository repository;
     late AuthService authService;
+    late SleepRecordRepository sleepRepository;
+    late RoutineRepository routineRepository;
+    late AnthropicClient anthropicClient;
+    late SubscriptionService subscriptionService;
 
     setUp(() {
       firestore = FakeFirestore();
@@ -148,6 +196,15 @@ void main() {
         uid: 'user-123',
       );
       authService = AuthService(provider: FakeAuthProvider());
+      sleepRepository = SleepRecordRepository(
+        store: firestore,
+        uid: 'user-123',
+      );
+      routineRepository = RoutineRepository(store: firestore, uid: 'user-123');
+      anthropicClient = FakeAnthropicClient();
+      subscriptionService = FakeSubscriptionService(
+        initialStatus: SubscriptionStatus.free(),
+      );
     });
 
     testWidgets('初回起動では onboarding を表示し、完了後はホームを表示する', (tester) async {
@@ -156,6 +213,10 @@ void main() {
           home: OnboardingApp(
             repository: repository,
             authService: authService,
+            sleepRepository: sleepRepository,
+            routineRepository: routineRepository,
+            anthropicClient: anthropicClient,
+            subscriptionService: subscriptionService,
             currentBedtimePicker: (_, __) async =>
                 const TimeOfDay(hour: 23, minute: 15),
             currentWakeTimePicker: (_, __) async =>
@@ -191,7 +252,14 @@ void main() {
     testWidgets('スキップした後もホームから再編集できる', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
-          home: OnboardingApp(repository: repository, authService: authService),
+          home: OnboardingApp(
+            repository: repository,
+            authService: authService,
+            sleepRepository: sleepRepository,
+            routineRepository: routineRepository,
+            anthropicClient: anthropicClient,
+            subscriptionService: subscriptionService,
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -214,7 +282,14 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: OnboardingApp(repository: repository, authService: authService),
+          home: OnboardingApp(
+            repository: repository,
+            authService: authService,
+            sleepRepository: sleepRepository,
+            routineRepository: routineRepository,
+            anthropicClient: anthropicClient,
+            subscriptionService: subscriptionService,
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -225,6 +300,61 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('設定'), findsOneWidget);
+    });
+
+    testWidgets('ホームから各機能画面へ遷移できる', (tester) async {
+      await preferences.setBool(repository.completedKey, true);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OnboardingApp(
+            repository: repository,
+            authService: authService,
+            sleepRepository: sleepRepository,
+            routineRepository: routineRepository,
+            anthropicClient: anthropicClient,
+            subscriptionService: subscriptionService,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('open-sleep-record')));
+      await tester.pumpAndSettle();
+      expect(find.text('睡眠記録'), findsOneWidget);
+      expect(find.byType(SleepRecordPage), findsOneWidget);
+
+      Navigator.of(tester.element(find.byType(SleepRecordPage))).pop();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('open-morning-routine')));
+      await tester.pumpAndSettle();
+      expect(find.text('今朝のルーティン'), findsOneWidget);
+
+      Navigator.of(tester.element(find.text('今朝のルーティン'))).pop();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('open-routine-settings')));
+      await tester.pumpAndSettle();
+      expect(find.text('朝ルーティン設定'), findsOneWidget);
+
+      Navigator.of(tester.element(find.text('朝ルーティン設定'))).pop();
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('open-night-suggestion')));
+      await tester.pumpAndSettle();
+      expect(find.text('今夜のAI提案'), findsOneWidget);
+      expect(find.byType(NightSuggestionPage), findsOneWidget);
+
+      Navigator.of(tester.element(find.byType(NightSuggestionPage))).pop();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('open-review')));
+      await tester.pumpAndSettle();
+      expect(find.text('振り返り'), findsOneWidget);
+      expect(find.byType(ReviewPage), findsOneWidget);
     });
   });
 }
