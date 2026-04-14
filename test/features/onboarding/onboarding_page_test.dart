@@ -116,7 +116,7 @@ void main() {
                 const TimeOfDay(hour: 22, minute: 30),
             idealWakeTimePicker: (_, __) async =>
                 const TimeOfDay(hour: 6, minute: 0),
-            onCompleted: (_) {},
+            onCompleted: (_) async {},
             onSkipped: () {},
           ),
         ),
@@ -160,7 +160,7 @@ void main() {
             currentWakeTimePicker: _fixedPicker,
             idealBedtimePicker: _fixedPicker,
             idealWakeTimePicker: _fixedPicker,
-            onCompleted: (_) {},
+            onCompleted: (_) async {},
             onSkipped: () {},
           ),
         ),

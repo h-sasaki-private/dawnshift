@@ -1,3 +1,4 @@
+import 'package:dawnshift/core/models/routine_item.dart';
 import 'package:dawnshift/features/ai_suggestion/anthropic_client.dart';
 import 'package:dawnshift/features/ai_suggestion/night_suggestion_page.dart';
 import 'package:dawnshift/features/auth/auth_service.dart';
@@ -77,7 +78,21 @@ class _OnboardingAppState extends State<OnboardingApp> {
     });
   }
 
-  void _handleCompleted(UserProfile profile) {
+  Future<void> _handleCompleted(UserProfile profile) async {
+    // 選択されたルーティン候補を RoutineRepository に反映する
+    final existing = await widget.routineRepository.findAll();
+    final existingTitles = existing.map((e) => e.title).toSet();
+
+    for (var i = 0; i < profile.morningRoutineCandidates.length; i++) {
+      final title = profile.morningRoutineCandidates[i];
+      if (!existingTitles.contains(title)) {
+        await widget.routineRepository.add(
+          RoutineItem(title: title, durationMinutes: 10, order: i),
+        );
+      }
+    }
+
+    if (!mounted) return;
     setState(() {
       _profile = profile;
       _showOnboarding = false;

@@ -31,7 +31,7 @@ class OnboardingPage extends StatefulWidget {
 
   final OnboardingRepository repository;
   final UserProfile? initialProfile;
-  final ValueChanged<UserProfile> onCompleted;
+  final Future<void> Function(UserProfile) onCompleted;
   final VoidCallback onSkipped;
   final TimePickerCallback? currentBedtimePicker;
   final TimePickerCallback? currentWakeTimePicker;
@@ -121,7 +121,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     setState(() {
       _saving = false;
     });
-    widget.onCompleted(profile);
+    await widget.onCompleted(profile);
   }
 
   Future<void> _skip() async {
